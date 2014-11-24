@@ -40,94 +40,128 @@ HAL是硬件抽象层(hardware abstract layer)。
 #include "nes/hal.h"
 #include "nes/fce.h"
 #include "nes/common.h"
-#include <allegro5/allegro.h>
-#include <allegro5/allegro_primitives.h>
+#include "x86.h"
+#include "device.h"
 
-ALLEGRO_EVENT_QUEUE *fce_event_queue;
-ALLEGRO_TIMER *fce_timer = NULL;
-static ALLEGRO_VERTEX vtx[1000000];
+
 int vtx_sz = 0;
-
+static volatile int timers = 0, live = 0;
   
 /* 控制时间的函数，函数每次完成计算后会被调用，保证每秒执行FPS次 */
 void wait_for_frame()
 {
-    while (1)
-    {
-        ALLEGRO_EVENT event;
-        al_wait_for_event(fce_event_queue, &event);
-        if (event.type == ALLEGRO_EVENT_TIMER) break;
-    }
-    asm volatile ("nop");
+	int i = HZ / 60;
+	while (i) {
+		wait_for_interrupt();
+		disable_interrupt(); // 关闭中断是为了防止数据竞争(data race)。
+		if (timers > 0) {
+			timers --;
+			i --;
+		}
+		enable_interrupt();
+	}
 }
 
 /* 设置背景色为(r, g, b)，等价于NES内部颜色代码c
    如果不设置，Super Mario将看到黑色而不是蓝色的背景 */
-void nes_set_bg_color(int r, int g, int b, int c)
-{
-    al_clear_to_color(al_map_rgb(r, g, b));
+void nes_set_bg_color(int c)
+{ 
+    //int color = c;//CGA_Palette(r,g,b);
+   clear_to_color(c);//Important
 }
+
+int CGA_Palette(int r,int g,int b)
+{
+     bool intense = (r > 128) | (g > 128) | (b > 128);
+     bool red = (r > 123);
+     bool green = (g > 122);
+     bool blue = (b > 123);
+     return (intense << 3)|(red << 2)|(green << 1)|(blue);
+	/*int i,index = 0;
+	double min = 1000000,min2;
+	for(i = 0;i < 256;i ++)
+	{
+		min2 = ((double)(r-def_pal[3*i])/r)*((double)(r-def_pal[3*i])/r) + ((double)(g-def_pal[3*i+1])/g)*((double)(g-def_pal[3*i+1])/g) + ((double)(b-def_pal[3*i+2])/b)*((double)(b-def_pal[3*i+2])/b);
+		if(min2 < (double)min)
+		{	
+			index = i;
+			min = min2;
+		}
+	}
+	return index;*/
+	//return lpBestfitColor(def_pal,r>>1,g>>1,b>>1);
+}
+
 
 /* 在屏幕上绘制一个像素点
    但在这个实现里，我们只是保存这个像素点，在flip_display时统一绘制 */
 void nes_draw_pixel(Pixel *p)
-{
-      ALLEGRO_VERTEX px;
+{ 
+    int color = p->c;//CGA_Palette(p->r,p->g,p->b);//(int)(0.299*p->r + 0.587*p->g + 0.114*p->b);//,g,b;
+    draw_pixel(p->x * 5/4, p->y * 5/6, color);
+    if(!(p->x & 0x3))
+   	draw_pixel(p->x * 5/4 -1, p->y * 5/6, color);
+    //unsigned long xrIntFloat_16=(213<<16)/256+1; //16.16格式定点数
+   // unsigned long yrIntFloat_16=(200<<16)/240+1; //16.16格式定点数
+    //draw_pixel((xrIntFloat_16 * p->x) >>16,(p->y)*yrIntFloat_16 >> 16,color);
+    //draw_string("Hello World!",0,SCR_HEIGHT - 8,10);
+    /*  ALLEGRO_VERTEX px;
     px.x = p->x;
     px.y = p->y;
     px.z = 0;
     px.color = al_map_rgb(p->r, p->g, p->b);
-    memcpy(&vtx[vtx_sz++], &px, sizeof(ALLEGRO_VERTEX));
+    memcpy(&vtx[vtx_sz++], &px, sizeof(ALLEGRO_VERTEX));*/
 }
-
+void
+handle_timer(void) { // 时钟中断处理函数
+	timers ++;
+}
 /* 初始化一切需要的内容。
    在这里主要是调用allegro库，初始化定时器、键盘和屏幕 */
 void nes_hal_init()
 {
-    al_init();
-    al_init_primitives_addon();
-    al_install_keyboard();
-    al_create_display(SCREEN_WIDTH, SCREEN_HEIGHT);
-
-    fce_timer = al_create_timer(1.0 / FPS);
-    fce_event_queue = al_create_event_queue();
-    al_register_event_source(fce_event_queue, al_get_timer_event_source(fce_timer));
-    al_start_timer(fce_timer);
+	int i;
+	out_byte(0x03c8, 0);
+	for(i = 0;i < 64;i++)
+	{
+		out_byte(0x03c9, (palette[i].r) >>2);
+		out_byte(0x03c9, (palette[i].g) >>2);
+		out_byte(0x03c9, (palette[i].b) >>2);
+	}
 }
 
 /* 这个函数每秒会被调用FPS次，每次调用时更新屏幕内容 */
 void nes_flip_display()
 {
+    /*
     al_draw_prim(vtx, NULL, NULL, 0, vtx_sz, ALLEGRO_PRIM_POINT_LIST);
      al_flip_display();
-    vtx_sz = 0;
+    vtx_sz = 0;*/
 }
 
 /* 询问编码为b的按键是否被按下(返回1为按下) */
 int nes_key_state(int b)
 {
-    ALLEGRO_KEYBOARD_STATE state;
-    al_get_keyboard_state(&state);
     switch (b)
 	{
         case 0: // On / Off
             return 1;
         case 1: // A
-            return al_key_down(&state, ALLEGRO_KEY_K);
+            return GetKey(37);//K
         case 2: // B
-            return al_key_down(&state, ALLEGRO_KEY_J);
+            return GetKey(36);;//J
         case 3: // SELECT
-            return al_key_down(&state, ALLEGRO_KEY_U);
+            return GetKey(22);//U
         case 4: // START
-            return al_key_down(&state, ALLEGRO_KEY_I);
+            return GetKey(23);//I
         case 5: // UP
-            return al_key_down(&state, ALLEGRO_KEY_W);
+            return GetKey(17);//W
         case 6: // DOWN
-            return al_key_down(&state, ALLEGRO_KEY_S);
+            return GetKey(31);//S
         case 7: // LEFT
-            return al_key_down(&state, ALLEGRO_KEY_A);
+            return GetKey(30);//A
         case 8: // RIGHT
-            return al_key_down(&state, ALLEGRO_KEY_D);
+            return GetKey(32);//D
         default:
             return 1;
     }

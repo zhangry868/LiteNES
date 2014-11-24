@@ -4,7 +4,7 @@
 #include "nes/ppu.h"
 #include "nes/hal.h"
 #include "nes/nes.h"
-#include <string.h>
+#include "common.h"
 
 typedef struct {
     char signature[4];
@@ -33,6 +33,7 @@ int fce_load_rom(char *rom)
     if (memcmp(fce_rom_header.signature, "NES\x1A", 4)) {
         return -1;
     }
+	//Error
 
     mmc_id = ((fce_rom_header.rom_type & 0xF0) >> 4);
 
@@ -98,11 +99,10 @@ void fce_run()
 
 void fce_update_screen()
 {
-    int i;
     int idx = ppu_ram_read(0x3F00);
     pal bgc = palette[idx];
-    nes_set_bg_color(bgc.r, bgc.g, bgc.b, idx);
-    
+    nes_set_bg_color(idx);
+    int i;
     if (ppu_shows_sprites()) {
         for (i = 0; i < bbg.size; i ++) {
             nes_draw_pixel(bbg.buf + i);
@@ -120,9 +120,6 @@ void fce_update_screen()
             nes_draw_pixel(fg.buf + i);
         }
     }
-
-    nes_flip_display();
-
     pixbuf_clean(bbg);
     pixbuf_clean(bg);
     pixbuf_clean(fg);

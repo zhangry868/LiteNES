@@ -4,7 +4,10 @@
 #include "nes/fce.h"
 #include "nes/memory.h"
 #include "nes/hal.h"
-#include <string.h>
+#include "common.h"
+
+#include "device.h"
+#include "nes/common.h"
 
 byte ppu_sprite_palette[4][4];
 bool ppu_2007_first_read;
@@ -131,31 +134,29 @@ inline void ppu_ram_write(word address, byte data)
 void ppu_draw_background_scanline(bool mirror)
 {
     int tile_x;
+    int tile_y = ppu.scanline >> 3;
+    int y_in_tile = ppu.scanline & 0x7;
     for (tile_x = ppu_shows_background_in_leftmost_8px() ? 0 : 1; tile_x < 32; tile_x++) {
         // Skipping off-screen pixels
         if (((tile_x << 3) - ppu.PPUSCROLL_X + (mirror ? 256 : 0)) > 256)
-            continue;
-
-        int tile_y = ppu.scanline >> 3;
+            continue;  
         int tile_index = ppu_ram_read(ppu_base_nametable_address() + tile_x + (tile_y << 5) + (mirror ? 0x400 : 0));
         word tile_address = ppu_background_pattern_table_address() + 16 * tile_index;
 
-        int y_in_tile = ppu.scanline & 0x7;
         byte l = ppu_ram_read(tile_address + y_in_tile);
         byte h = ppu_ram_read(tile_address + y_in_tile + 8);
-
+	byte* ColorBuffer = ppu_l_h_addition_table[l][h]; 
         int x;
+	byte color = 1;
         for (x = 0; x < 8; x++) {
-            byte color = ppu_l_h_addition_table[l][h][x];
-
+	    color = ColorBuffer[x];//back == 10%
             // Color 0 is transparent
             if (color != 0) {
-                
-                word attribute_address = (ppu_base_nametable_address() + (mirror ? 0x400 : 0) + 0x3C0 + (tile_x >> 2) + (ppu.scanline >> 5) * 8);
-                bool top = (ppu.scanline % 32) < 16;
-                bool left = (tile_x % 32 < 16);
+                word attribute_address = (ppu_base_nametable_address() + (mirror ? 0x400 : 0) + 0x3C0 + (tile_x >> 2) + ((ppu.scanline >> 5) << 3));// color == 10%
+                register bool top = (ppu.scanline & 31) < 16;
+                register bool left = (tile_x & 31)  < 16;
 
-                byte palette_attribute = ppu_ram_read(attribute_address);
+                byte palette_attribute = ppu_ram_read(attribute_address);//color 4%
 
                 if (!top) {
                     palette_attribute >>= 4;
@@ -164,14 +165,9 @@ void ppu_draw_background_scanline(bool mirror)
                     palette_attribute >>= 2;
                 }
                 palette_attribute &= 3;
-
                 word palette_address = 0x3F00 + (palette_attribute << 2);
-                int idx = ppu_ram_read(palette_address + color);
-                pal c = palette[idx];
-
-                ppu_screen_background[(tile_x << 3) + x][ppu.scanline] = color;
-                
-                pixbuf_add(bg, (tile_x << 3) + x - ppu.PPUSCROLL_X + (mirror ? 256 : 0), ppu.scanline + 1, c.r, c.g, c.b, idx);
+                register int idx = ppu_ram_read(palette_address + color);
+                pixbuf_add(bg, (tile_x << 3) + x - ppu.PPUSCROLL_X + (mirror ? 256 : 0), ppu.scanline + 1, idx);
             }
         }
     }
@@ -194,11 +190,11 @@ void ppu_draw_sprite_scanline()
         // PPU can't render > 8 sprites
         if (scanline_sprite_count > 8) {
             ppu_set_sprite_overflow(true);
-            // break;
+             break;
         }
 
-        bool vflip = PPU_SPRRAM[n + 2] & 0x80;
-        bool hflip = PPU_SPRRAM[n + 2] & 0x40;
+        register bool vflip = PPU_SPRRAM[n + 2] & 0x80;
+        register bool hflip = PPU_SPRRAM[n + 2] & 0x40;
 
         word tile_address = ppu_sprite_pattern_table_address() + 16 * PPU_SPRRAM[n + 1];
         int y_in_tile = ppu.scanline & 0x7;
@@ -213,15 +209,13 @@ void ppu_draw_sprite_scanline()
 
             // Color 0 is transparent
             if (color != 0) {
-                int screen_x = sprite_x + x;
-                int idx = ppu_ram_read(palette_address + color);
-                pal c = palette[idx];
-                
+                register int screen_x = sprite_x + x;
+                register int idx = ppu_ram_read(palette_address + color);               
                 if (PPU_SPRRAM[n + 2] & 0x20) {
-                    pixbuf_add(bbg, screen_x, sprite_y + y_in_tile + 1, c.r, c.g, c.b, idx);
+                    pixbuf_add(bbg, screen_x, sprite_y + y_in_tile + 1, idx);
                 }
                 else {
-                    pixbuf_add(fg, screen_x, sprite_y + y_in_tile + 1, c.r, c.g, c.b, idx);
+                    pixbuf_add(fg, screen_x, sprite_y + y_in_tile + 1, idx);
                 }
 
                 // Checking sprite 0 hit
@@ -251,9 +245,9 @@ void ppu_cycle()
         ppu.ready = true;
 
     ppu.scanline++;
-    if (ppu_shows_background()) {
+    if (ppu_shows_background() ) {
+	//ppu_draw_background_scanline(true);
         ppu_draw_background_scanline(false);
-        ppu_draw_background_scanline(true);
     }
     
     if (ppu_shows_sprites()) ppu_draw_sprite_scanline();
@@ -393,8 +387,7 @@ void ppu_sprram_write(byte data)
 
 void ppu_set_background_color(byte color)
 {
-    pal c = palette[color];
-    nes_set_bg_color(c.r, c.g, c.b, color);
+    nes_set_bg_color(color);
 }
 
 void ppu_set_mirroring(byte mirroring)

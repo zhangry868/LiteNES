@@ -1,14 +1,15 @@
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
+
+#include "common/types.h"
+#include "common/const.h"
 
 #ifndef COMMON_H
 #define COMMON_H
 
+typedef int bool;
 typedef uint8_t byte;
 typedef uint16_t word;
 typedef uint32_t dword;
-typedef uint64_t qword;
+typedef unsigned long int qword;//?
 
 // Binary Operations
 bool common_bit_set(long long value, byte position);
