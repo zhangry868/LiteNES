@@ -1,3 +1,10 @@
+
+This project is a personal project, and I transplant this simulator to a bare computer of i386.
+Its Functions stay the same, and the rom is integrated with the OS image.
+I choose Yie Ar Kung-Fu as its game.
+
+© 2013-2014 All Rights reserved.
+=============================================================================================================================
 ## LiteNES
 
 This project is a fork of Stanislav Yaglo's mynes (https://github.com/yaglo/mynes).
